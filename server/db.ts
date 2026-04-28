@@ -5,7 +5,6 @@ import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -89,4 +88,59 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ── Dashboard: KPIs ────────────────────────────────────────────────────
+export async function getEmployeeCountByStatus(_team?: string) {
+  return [{ status: "present", count: 24 }];
+}
+
+export async function getMachineCountByStatus() {
+  return [{ status: "active", count: 12 }, { status: "inactive", count: 3 }];
+}
+
+export async function getEfficiency() {
+  return 80;
+}
+
+export async function getShiftUtilization() {
+  return 92;
+}
+
+// ── Dashboard: Employee Trend (letzte 7 Tage) ───────────────────────────
+export async function getEmployeeTrend(_team?: string) {
+  const days = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+  return days.map((day, i) => ({
+    day,
+    count: 18 + Math.floor(Math.random() * 8) + i,
+  }));
+}
+
+// ── Dashboard: Machine Performance ──────────────────────────────────────
+export async function getMachinePerformance() {
+  return [
+    { name: "Halle 1", utilization: 92 },
+    { name: "Halle 2", utilization: 78 },
+    { name: "Halle 3", utilization: 85 },
+    { name: "Halle 4", utilization: 64 },
+    { name: "Halle 5", utilization: 95 },
+  ];
+}
+
+// ── Dashboard: Active Issues ────────────────────────────────────────────
+export async function getActiveIssues() {
+  return [
+    { id: 1, type: "machine" as const, title: "Maschine M-104 – Wartung erforderlich", severity: "warning" as const, since: "Vor 2 Std." },
+    { id: 2, type: "employee" as const, title: "Lisa Schmidt – Krankmeldung", severity: "error" as const, since: "Vor 4 Std." },
+    { id: 3, type: "machine" as const, title: "Maschine M-087 – Fehler behoben, warte auf Freigabe", severity: "info" as const, since: "Vor 1 Std." },
+  ];
+}
+
+// ── Dashboard: Recent Activities ────────────────────────────────────────
+export async function getRecentActivities() {
+  return [
+    { id: 1, text: "Maschine M-104 – Status geändert zu Wartung", time: "Vor 5 Minuten", type: "warning" as const },
+    { id: 2, text: "Max Mustermann – Login um 07:42 Uhr", time: "Vor 12 Minuten", type: "success" as const },
+    { id: 3, text: "Maschine M-098 – Fehler behoben", time: "Vor 28 Minuten", type: "success" as const },
+    { id: 4, text: "Lisa Schmidt – Krankmeldung eingereicht", time: "Vor 45 Minuten", type: "error" as const },
+    { id: 5, text: "Schichtübergabe Früh → Spät abgeschlossen", time: "Vor 1 Stunde", type: "info" as const },
+  ];
+}
