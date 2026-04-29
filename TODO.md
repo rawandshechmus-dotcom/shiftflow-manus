@@ -1,11 +1,15 @@
-# Notification System Implementation
+# Bug Fix Progress
 
-## Steps:
-- [x] 1. Update drizzle/schema.ts to PostgreSQL notifications table
-- [x] 2. Update server/db.ts notification functions (PG syntax, isRead bool, limit 10)
-- [x] 3. Add notification router to server/routers.ts
-- [x] 4. Create client/src/components/NotificationBell.tsx
-- [ ] 5. Run `pnpm db:push` and `pnpm check`
-- [ ] 6. Integrate into TopNav/DashboardLayout (manual)
+## TS Errors Fix Steps
+- [ ] 1. TopNav import NotificationBell
+- [ ] 2. NotificationBell TRPC utils.refetch() + mutate(id) + types
+- [ ] 3. KpiCards motion ease array
+- [ ] 4. Login stub mutation
+- [ ] 5. storageProxy req.params type
 
-Updated: PostgreSQL confirmed.
+## Runtime
+- [ ] .env JWT_SECRET etc
+- [ ] pnpm db:push
+
+Updated by BB
+
