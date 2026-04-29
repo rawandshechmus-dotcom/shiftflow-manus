@@ -26,7 +26,7 @@ const containerVariants = {
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as any } },
 };
 
 export default function KpiCards() {

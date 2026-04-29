@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { getLoginUrl } from "@/const";
-import { Bell, LogOut, Zap } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
+import { LogOut, Zap } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function TopNav() {
@@ -17,17 +18,16 @@ export default function TopNav() {
             ShiftFlow
           </span>
         </div>
-        <Button
-          onClick={() => {
-            window.location.href = getLoginUrl();
-          }}
-          size="sm"
+        <Button onClick={() => { window.location.href = "/login"; }} size="sm"
         >
           Sign in
         </Button>
+        
       </header>
-    );
-  }
+        );
+    }
+          
+        
 
   return (
     <motion.header
@@ -35,6 +35,7 @@ export default function TopNav() {
       animate={{ y: 0, opacity: 1 }}
       className="h-16 glass-card border-b flex items-center justify-between px-6 sticky top-0 z-40"
     >
+      {/* Linker Bereich: Logo */}
       <div className="flex items-center gap-3">
         <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
           <Zap className="h-5 w-5 text-primary" />
@@ -47,17 +48,11 @@ export default function TopNav() {
             Dashboard
           </span>
         </div>
+      </div>
 
+      {/* Rechter Bereich: Glocke, Avatar, Logout */}
       <div className="flex items-center gap-3">
-        <button className="relative h-9 w-9 rounded-lg hover:bg-accent flex items-center justify-center transition-colors">
-          <Bell className="h-4 w-4 text-muted-foreground" />
-          <Badge
-            variant="destructive"
-            className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-bold rounded-full"
-          >
-            3
-          </Badge>
-        </button>
+<NotificationBell />
 
         <div className="h-6 w-px bg-border" />
 
@@ -83,6 +78,7 @@ export default function TopNav() {
             <LogOut className="h-4 w-4" />
           </button>
         </div>
+      </div>
     </motion.header>
   );
 }

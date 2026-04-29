@@ -72,9 +72,10 @@ export const appRouter = router({
       .input(z.object({}).optional())
       .query(async ({ ctx }) => getUnreadNotificationCount(ctx.user.id)),
     markAsRead: protectedProcedure
-.input(z.number())
-({ input, ctx }) => {\n        await markNotificationAsRead(input, ctx.user.id);
-      }),
+    .input(z.number())
+    .mutation(async({ input, ctx }) => {await markNotificationAsRead(input, ctx.user.id);
+      return { success: true } 
+    }),
     create: protectedProcedure
       .input(z.object({
         message: z.string().min(1),
@@ -85,6 +86,7 @@ export const appRouter = router({
           ...input,
           userId: ctx.user.id,
         });
+        return { success: true };
       }),
   }),
 });
