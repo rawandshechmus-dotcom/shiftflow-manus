@@ -66,13 +66,14 @@ export const appRouter = router({
     }),
   }),
 
-  notification: router({\n    list: protectedProcedure.query(async ({ ctx }) => listNotifications(ctx.user.id)),\n    unreadCount: protectedProcedure
+  notification: router({
+    list: protectedProcedure.query(async ({ ctx }) => listNotifications(ctx.user.id)),
+    unreadCount: protectedProcedure
       .input(z.object({}).optional())
       .query(async ({ ctx }) => getUnreadNotificationCount(ctx.user.id)),
     markAsRead: protectedProcedure
-      .input(z.number("id"))
-      .mutation(async ({ input, ctx }) => {
-        await markNotificationAsRead(input.id, ctx.user.id);
+.input(z.number())
+({ input, ctx }) => {\n        await markNotificationAsRead(input, ctx.user.id);
       }),
     create: protectedProcedure
       .input(z.object({
@@ -86,7 +87,6 @@ export const appRouter = router({
         });
       }),
   }),
-
 });
 
 export type AppRouter = typeof appRouter;

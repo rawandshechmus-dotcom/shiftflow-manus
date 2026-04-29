@@ -32,10 +32,7 @@ interface Notification {
 
 export function NotificationBell() {
 const { data: unreadCountData } = trpc.notification.unreadCount.useQuery();
-  const unreadCount = unreadCountData ?? 0;
-
-const { data: notifications = [] } = trpc.notification.list.useQuery();
-const markAsReadMutation = trpc.notification.markAsRead.useMutation();
+  const unreadCount = unreadCountData ?? 0;\n\n  const { data: notifications = [] } = trpc.notification.list.useQuery();
 
   const [open, setOpen] = useState(false);
 
