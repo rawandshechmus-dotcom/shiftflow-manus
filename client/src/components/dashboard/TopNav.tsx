@@ -1,58 +1,62 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getLoginUrl } from "@/const";
-import { NotificationBell } from "@/components/NotificationBell";
-import { LogOut, Zap } from "lucide-react";
+import NotificationBell from "@/components/NotificationBell";
+import { useTheme } from "@/contexts/ThemeContext";
+import { LogOut, Moon, Sun, Zap } from "lucide-react";
 import { motion } from "framer-motion";
+import { useState } from "react";
+import HandoverPopup from "../HandoverPopup";
 
 export default function TopNav() {
   const { user, logout } = useAuth();
+  const [showHandover, setShowHandover] = useState(true);
+  const { theme, toggleTheme } = useTheme();
 
   if (!user) {
     return (
       <header className="h-16 border-b glass-card flex items-center justify-between px-6 sticky top-0 z-40">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-xl tracking-tight text-primary">
-            ShiftFlow
-          </span>
+          <span className="font-bold text-xl tracking-tight text-primary">ShiftFlow</span>
         </div>
-        <Button onClick={() => { window.location.href = "/login"; }} size="sm"
-        >
+        <Button onClick={() => { window.location.href = "/login"; }} size="sm">
           Sign in
         </Button>
-        
       </header>
-        );
-    }
-          
-        
+    );
+  }
 
   return (
     <motion.header
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       className="h-16 glass-card border-b flex items-center justify-between px-6 sticky top-0 z-40"
-    >
+      >
+      <HandoverPopup open={showHandover} onClose={() => setShowHandover(false)} />
+    
       {/* Linker Bereich: Logo */}
       <div className="flex items-center gap-3">
         <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
           <Zap className="h-5 w-5 text-primary" />
         </div>
         <div className="flex flex-col">
-          <span className="font-bold text-lg tracking-tight leading-none">
-            ShiftFlow
-          </span>
-          <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">
-            Dashboard
-          </span>
+          <span className="font-bold text-lg tracking-tight leading-none">ShiftFlow</span>
+          <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Dashboard</span>
         </div>
       </div>
 
-      {/* Rechter Bereich: Glocke, Avatar, Logout */}
+      {/* Rechter Bereich: Dark-Mode, Glocke, Avatar, Logout */}
       <div className="flex items-center gap-3">
-<NotificationBell />
+        <button
+          onClick={toggleTheme}
+          className="h-9 w-9 rounded-lg hover:bg-accent flex items-center justify-center transition-colors"
+          title="Dark Mode umschalten"
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+
+        <NotificationBell />
 
         <div className="h-6 w-px bg-border" />
 

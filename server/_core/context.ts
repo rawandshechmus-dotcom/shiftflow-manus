@@ -1,16 +1,29 @@
-import { inferAsyncReturnType } from "@trpc/server";
-import { CreateHTTPContextOptions } from "@trpc/server/adapters/standalone";
+import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
+import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 
-export async function createContext({ req, res }: CreateHTTPContextOptions) {
-  let user = null;
-  try {
-    const auth = await sdk.authenticateRequest(req);
-    user = auth.user;
-  } catch (err) {
-    // Ignorieren – kein User
-  }
-  return { req, res, user };
-}
+export type TrpcContext = {
+  req: CreateExpressContextOptions["req"];
+  res: CreateExpressContextOptions["res"];
+  user: User | null;
+};
 
-export type Context = inferAsyncReturnType<typeof createContext>;
+export async function createContext(
+  opts: CreateExpressContextOptions
+): Promise<TrpcContext> {
+  let user: User | null = null;
+
+  try {
+    // Echten Benutzer aus dem Session-Cookie laden
+    user = await sdk.authenticateRequest(opts.req);
+  } catch (error) {
+    // Keinen Fallback setzen – Benutzer bleibt null
+    console.warn("[Context] Keine gültige Session");
+  }
+
+  return {
+    req: opts.req,
+    res: opts.res,
+    user,
+  };
+}
