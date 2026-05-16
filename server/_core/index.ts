@@ -4,10 +4,18 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
+import { registerStorageProxy } from "../storage";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+// Zusätzliche Imports für den Test-Endpunkt
+import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
+import { users } from "../../drizzle/schema";
+import { getDb } from "../db";
+import { sdk } from "./sdk";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { getSessionCookieOptions } from "./cookies";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +44,47 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+
+  // === NEU: Dedizierter Login-Endpunkt für Stresstests ===
+  if (process.env.NODE_ENV === "development") {
+    app.post("/api/test-login", async (req, res) => {
+      try {
+        const { email, password } = req.body;
+        if (!email || !password) {
+          return res.status(400).json({ error: "email und password sind erforderlich" });
+        }
+
+        const db = await getDb();
+        if (!db) return res.status(500).json({ error: "Datenbank nicht erreichbar" });
+
+        const rows = await db.select().from(users).where(eq(users.openId, email)).limit(1);
+        const user = rows[0] as any;
+
+        if (!user || !user.passwordHash) {
+          return res.status(401).json({ error: "Ungültige Email oder Passwort" });
+        }
+
+        const isValid = await bcrypt.compare(password, user.passwordHash);
+        if (!isValid) {
+          return res.status(401).json({ error: "Ungültige Email oder Passwort" });
+        }
+
+        // Session-Token erstellen und Cookie setzen
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        return res.json({ success: true, role: user.role });
+      } catch (error) {
+        console.error("[TestLogin] Fehler:", error);
+        return res.status(500).json({ error: "Interner Serverfehler" });
+      }
+    });
+  }
+
   // tRPC API
   app.use(
     "/api/trpc",

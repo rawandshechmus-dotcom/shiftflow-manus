@@ -17,6 +17,7 @@ import Schedule from "./pages/Schedule";
 import NotificationsPage from "./pages/Notifications";
 import Settings from "./pages/Settings";                    // ← NEU
 
+
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
