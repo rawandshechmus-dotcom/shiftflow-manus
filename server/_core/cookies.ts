@@ -6,7 +6,7 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "lax",
+    sameSite: process.env.NODE_ENV === "production" ? "lax" : "strict",
     secure: process.env.NODE_ENV === "production",
   };
 }

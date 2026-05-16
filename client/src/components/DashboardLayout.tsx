@@ -73,7 +73,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
     ? [{ icon: Users, label: "Mitarbeiter", path: "/mitarbeiter" },
       { icon: Wrench, label: "Maschinen", path: "/maschinen" }] : []),
   { icon: User, label: "Mein Portal", path: "/me" },
-  { icon: SettingsIcon, label: "Einstellungen", path: "/einstellungen" },   // ← ans Ende verschoben
+  { icon: SettingsIcon, label: "Einstellungen", path: "/settings" },   // ← ans Ende verschoben
 ];
   useEffect(() => { if (isCollapsed) setIsResizing(false); }, [isCollapsed]);
 

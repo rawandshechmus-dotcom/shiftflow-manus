@@ -48,130 +48,201 @@ import {
   getUserByOpenId,
   setPendingEmail,
   confirmEmailChange,
-
 } from "./db";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { users } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
-import * as otplib from "otplib";
+import speakeasy from "speakeasy";
 import QRCode from "qrcode";
-import crypto from "crypto"
+import { randomBytes } from "crypto";
+import nodemailer from "nodemailer";
+
+const rateLimitMap = new Map<string, number[]>();
+
+function checkRateLimit(key: string, maxAttempts: number = 5, windowMs: number = 60000): boolean {
+  const now = Date.now();
+  const attempts = rateLimitMap.get(key) ?? [];
+  const recent = attempts.filter(t => now - t < windowMs);
+  rateLimitMap.set(key, recent);
+  if (recent.length >= maxAttempts) return false;
+  recent.push(now);
+  return true;
+}
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
+
+
+function verifyTOTP(secret: string, token: string): boolean {
+  const now = Math.floor(Date.now() / 30000);
+  for (let offset = -1; offset <= 1; offset++) {
+    const expected = speakeasy.totp({
+      secret,
+      encoding: "base32",
+      time: (now + offset) * 30,
+    });
+    if (expected === token) return true;
+  }
+  return false;
+}
 
 export const appRouter = router({
   system: systemRouter,
 
-  // AUTH
+  // ─── AUTH ────────────────────────────────────────────────
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       ctx.res.clearCookie(COOKIE_NAME);
       return { success: true } as const;
     }),
-    // ── 2FA ──────────────────────────────────────────────────────────────
-enable2FA: protectedProcedure.mutation(async ({ ctx }) => {
-  const secret = otplib.authenticator.generateSecret();
-  await setTwoFactorSecret(ctx.user.id, secret);
-  const otpauth = otplib.authenticator.keyuri(ctx.user.email, "ShiftFlow", secret);
-  const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
-  return { secret, qrCode: qrCodeDataUrl };
-}),
 
-verify2FAEnable: protectedProcedure
-  .input(z.object({ token: z.string().length(6) }))
-  .mutation(async ({ ctx, input }) => {
-    const db = await getDb();
-    if (!db) throw new Error("Datenbank nicht erreichbar");
-    const result = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
-    
-    const user = result[0];
-    if (!user?.twoFactorSecret) throw new Error("Kein Secret vorhanden.");
-    const isValid = otplib.authenticator.verify({ token: input.token, secret: user.twoFactorSecret });
-    if (!isValid) throw new Error("Ungültiger Code.");
-    await enableTwoFactor(user.id);
-    return { success: true };
-  }),
-  
-disable2FA: protectedProcedure.mutation(async ({ ctx }) => {
-  await disableTwoFactor(ctx.user.id);
-  return { success: true };
-}),
-
-login2FA: publicProcedure
-  .input(z.object({ userId: z.number(), token: z.string().length(6) }))
-  .mutation(async ({ input, ctx }) => {
-    const db = await getDb();
-    if (!db) throw new Error("Datenbank nicht erreichbar");
-    const result = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-    
-    const user = result[0];
-    if (!user?.twoFactorSecret) throw new Error("2FA nicht eingerichtet.");
-    const isValid = otplib.authenticator.verify({ token: input.token, secret: user.twoFactorSecret });
-    if (!isValid) throw new Error("Ungültiger Code.");
-    const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", expiresInMs: ONE_YEAR_MS });
-    const cookieOptions = getSessionCookieOptions(ctx.req);
-    ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-    await createNotification({ userId: user.id, message: `${user.name ?? "Ein Benutzer"} hat sich angemeldet (2FA).`, type: "info" });
-    return { success: true, role: user.role };
-  }),
-
-// ── E-Mail-Änderung ─────────────────────────────────────────────────
-requestEmailChange: protectedProcedure
-  .input(z.object({ newEmail: z.string().email(), currentPassword: z.string() }))
-  .mutation(async ({ ctx, input }) => {
-    const user = await getUserByOpenId(ctx.user.openId);
-    if (!user?.passwordHash) throw new Error("Benutzer nicht gefunden.");
-    const valid = await bcrypt.compare(input.currentPassword, user.passwordHash);
-    if (!valid) throw new Error("Aktuelles Passwort ist falsch.");
-    const token = crypto.randomBytes(32).toString("hex");
-    await setPendingEmail(user.id, input.newEmail, token);
-    console.log(`[EMAIL CHANGE] Token für ${input.newEmail}: ${token}`);
-    return { success: true, message: "Bestätigungscode an neue E-Mail gesendet (Token in Konsole)." };
-  }),
-
-confirmEmailChange: protectedProcedure
-  .input(z.object({ token: z.string() }))
-  .mutation(async ({ ctx, input }) => {
-    await confirmEmailChange(ctx.user.id, input.token);
-    return { success: true, message: "E-Mail erfolgreich geändert." };
-  }),
+    // Login mit echtem bcrypt + 2FA‑Erkennung
     login: publicProcedure
-  .input(z.object({ email: z.string().email(), password: z.string() }))
-  .mutation(async ({ input, ctx }) => {
-    // Benutzer aus der DB laden (für die korrekte Rolle)
-    const db = await getDb();
-    if (!db) throw new Error("Datenbank nicht erreichbar");
+      .input(z.object({ email: z.string().email(), password: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Datenbank nicht erreichbar");
 
-    const rows = await db.select().from(users).where(eq(users.openId, input.email)).limit(1);
-    const user = rows[0] as any;
+        const rows = await db.select().from(users).where(eq(users.openId, input.email)).limit(1);
+        const user = rows[0] as any;
 
-    if (!user) throw new Error("Ungültige Email oder Passwort.");
+        if (!user || !user.passwordHash) throw new Error("Ungültige Email oder Passwort.");
 
-    // Hartcodierter Passwort-Check (temporär)
-    if (
-      (input.email === 'admin@shiftflow.local' && input.password === 'admin123') ||
-      (input.email === 'mitarbeiter2@shiftflow.local' && input.password === 'mitarbeiter123')
-    ) {
-      const sessionToken = await sdk.createSessionToken(user.openId, {
-        name: user.name || "",
-        expiresInMs: ONE_YEAR_MS,
+        const isValid = await bcrypt.compare(input.password, user.passwordHash);
+        if (!isValid) throw new Error("Ungültige Email oder Passwort.");
+
+        // Wenn 2FA aktiviert ist, nur den Hinweis zurückgeben
+        if (user.twoFactorEnabled) {
+          return { requiresTwoFactor: true, userId: user.id };
+        }
+
+        // Kein 2FA → Session sofort erstellen
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        await createNotification({
+          userId: user.id,
+          message: `${user.name ?? "Ein Benutzer"} hat sich angemeldet.`,
+          type: "info",
+        });
+        return { success: true, role: user.role };
+      }),
+
+    // 2FA aktivieren (QR‑Code + Secret)
+    enable2FA: protectedProcedure.mutation(async ({ ctx }) => {
+      const secret = speakeasy.generateSecret({
+        name: `ShiftFlow:${ctx.user.email}`,
+        length: 20,
       });
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.cookie(COOKIE_NAME, sessionToken, {
-        ...cookieOptions,
-        maxAge: ONE_YEAR_MS,
-      });
-      return { success: true, role: user.role };   // ← ECHTE Rolle aus der DB
-    }
+      await setTwoFactorSecret(ctx.user.id, secret.base32);
+      const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url!);
+      return { secret: secret.base32, qrCode: qrCodeDataUrl };
+    }),
 
-    throw new Error("Ungültige Email oder Passwort.");
-  }),
-  }),
+    // 2FA‑Aktivierung mit Code bestätigen
+    verify2FAEnable: protectedProcedure
+      .input(z.object({ token: z.string().length(6) }))
+      .mutation(async ({ ctx, input }) => {
+        const key = `2fa-verify-${ctx.user.id}`;
+        if (!checkRateLimit(key)) throw new Error("Zu viele Versuche. Bitte warte 60 Sekunden.");
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const result = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+        const user = result[0];
+        if (!user?.twoFactorSecret) throw new Error("Kein Secret vorhanden.");
 
-  // DASHBOARD
+        if (!verifyTOTP(user.twoFactorSecret, input.token)) {
+          throw new Error("Ungültiger Code.");
+        }
+        await enableTwoFactor(user.id);
+        return { success: true };
+      }),
+
+    // 2FA‑Login (zweiter Schritt)
+    login2FA: publicProcedure
+      .input(z.object({ userId: z.number(), token: z.string().length(6) }))
+      .mutation(async ({ input, ctx }) => {
+        const key = `2fa-login-${input.userId}`;
+        if (!checkRateLimit(key)) throw new Error("Zu viele Versuche. Bitte warte 60 Sekunden.");
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const result = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+        const user = result[0];
+        if (!user?.twoFactorSecret) throw new Error("2FA nicht eingerichtet.");
+
+        if (!verifyTOTP(user.twoFactorSecret, input.token)) {
+          throw new Error("Ungültiger Code.");
+        }
+
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+        await createNotification({
+          userId: user.id,
+          message: `${user.name ?? "Ein Benutzer"} hat sich angemeldet (2FA).`,
+          type: "info",
+        });
+        return { success: true, role: user.role };
+      }),
+
+    // E‑Mail‑Änderung anfordern (sendet echte E‑Mail)
+    requestEmailChange: protectedProcedure
+      .input(z.object({ newEmail: z.string().email(), currentPassword: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByOpenId(ctx.user.openId);
+        if (!user?.passwordHash) throw new Error("Benutzer nicht gefunden.");
+        const valid = await bcrypt.compare(input.currentPassword, user.passwordHash);
+        if (!valid) throw new Error("Aktuelles Passwort ist falsch.");
+
+        const token = randomBytes(32).toString("hex");
+        await setPendingEmail(user.id, input.newEmail, token);
+
+        // E‑Mail senden
+        try {
+          const info = await transporter.sendMail({
+            from: '"ShiftFlow" <noreply@shiftflow.local>',
+            to: input.newEmail,
+            subject: "E‑Mail‑Änderung bestätigen",
+            text: `Dein Bestätigungscode lautet: ${token}`,
+            html: `<p>Dein Bestätigungscode lautet:</p><h2>${token}</h2>`,
+          });
+          console.log(`[EMAIL CHANGE] E‑Mail gesendet an ${input.newEmail} (Message ID: ${info.messageId})`);
+        } catch (mailError) {
+          console.error("E‑Mail‑Versand fehlgeschlagen:", mailError);
+          throw new Error("E‑Mail konnte nicht gesendet werden.");
+        }
+
+        return { success: true, message: "Bestätigungscode an neue E‑Mail gesendet." };
+      }),
+
+    // E‑Mail‑Änderung bestätigen
+    confirmEmailChange: protectedProcedure
+      .input(z.object({ token: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        await confirmEmailChange(ctx.user.id, input.token);
+        return { success: true, message: "E‑Mail erfolgreich geändert." };
+      }),
+  }), // Ende auth
+
+  // ─── DASHBOARD ───────────────────────────────────────────
   dashboard: router({
     kpis: teamLeaderProcedure.query(async ({ ctx }) => {
-      const employees = await getEmployeeCountByStatus(ctx.teamFilter ??"");
+      const employees = await getEmployeeCountByStatus(ctx.teamFilter ?? "");
       const machines = await getMachineCountByStatus();
       const efficiency = await getEfficiency();
       const shiftUtil = await getShiftUtilization();
@@ -188,9 +259,9 @@ confirmEmailChange: protectedProcedure
     recentActivities: protectedProcedure.query(() => getRecentActivities()),
   }),
 
-  // EMPLOYEE
+  // ─── EMPLOYEE ────────────────────────────────────────────
   employee: router({
-    list: teamLeaderProcedure.query(({ ctx }) => listEmployees(ctx.teamFilter ??"")),
+    list: teamLeaderProcedure.query(({ ctx }) => listEmployees(ctx.teamFilter ?? "")),
     create: adminProcedure
       .input(z.object({ firstName: z.string().min(1), lastName: z.string().min(1), personnelNumber: z.string().min(1), team: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
@@ -225,7 +296,7 @@ confirmEmailChange: protectedProcedure
     }),
   }),
 
-  // MACHINE
+  // ─── MACHINE ─────────────────────────────────────────────
   machine: router({
     list: teamLeaderProcedure.query(() => listMachines()),
     create: adminProcedure
@@ -250,7 +321,7 @@ confirmEmailChange: protectedProcedure
       }),
   }),
 
-  // ASSIGNMENT
+  // ─── ASSIGNMENT ──────────────────────────────────────────
   assignment: router({
     list: teamLeaderProcedure
       .input(z.object({ year: z.number(), month: z.number() }).optional())
@@ -261,26 +332,24 @@ confirmEmailChange: protectedProcedure
         return await listAssignments(year, month);
       }),
     create: adminProcedure
-    .input(z.object({
-    employeeId: z.number(),
-    machineId: z.number(),
-    shiftDate: z.string(),
-    shiftType: z.enum(["early", "late", "night"]),
-    }))
-    .mutation(async ({ input, ctx }) => {
-    const result = await createAssignment(input);
-
-    const userId = await getEmployeeUserId(input.employeeId);
-    if (userId) {
-      await createNotification({
-        userId: userId,                     
-        message: `Neue Schichtzuweisung: ${input.shiftType} am ${input.shiftDate}`,
-        type: "info",
-      });
-    }
-
-    return result;
-  }),
+      .input(z.object({
+        employeeId: z.number(),
+        machineId: z.number(),
+        shiftDate: z.string(),
+        shiftType: z.enum(["early", "late", "night"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const result = await createAssignment(input);
+        const userId = await getEmployeeUserId(input.employeeId);
+        if (userId) {
+          await createNotification({
+            userId: userId,
+            message: `Neue Schichtzuweisung: ${input.shiftType} am ${input.shiftDate}`,
+            type: "info",
+          });
+        }
+        return result;
+      }),
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -289,7 +358,33 @@ confirmEmailChange: protectedProcedure
       }),
   }),
 
-  // NOTIFICATION
+  // ─── HANDOVER ────────────────────────────────────────────
+  handover: router({
+    openForCurrentShift: protectedProcedure
+      .input(z.object({ shiftType: z.string(), date: z.string() }))
+      .query(async ({ input }) => {
+        return await listOpenHandovers(input.shiftType, input.date);
+      }),
+    complete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ctx.user?.id) throw new Error("Nicht authentifiziert");
+        await completeHandover(input.id, ctx.user.id);
+        return { success: true };
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        fromShift: z.enum(["early", "late", "night"]),
+        toShift: z.enum(["early", "late", "night"]),
+        date: z.string(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return await createHandover(input);
+      }),
+  }),
+
+  // ─── NOTIFICATION ────────────────────────────────────────
   notification: router({
     list: protectedProcedure.query(async ({ ctx }) => listNotifications(ctx.user.id)),
     unreadCount: protectedProcedure.input(z.object({}).optional()).query(async ({ ctx }) => getUnreadNotificationCount(ctx.user.id)),
@@ -311,28 +406,3 @@ confirmEmailChange: protectedProcedure
 });
 
 export type AppRouter = typeof appRouter;
-
-handover: router({
-  openForCurrentShift: protectedProcedure
-    .input(z.object({ shiftType: z.string(), date: z.string() }))
-    .query(async ({ input }) => {
-      return await listOpenHandovers(input.shiftType, input.date);
-    }),
-  complete: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      if (!ctx.user?.id) throw new Error("Nicht authentifiziert");
-      await completeHandover(input.id, ctx.user.id);
-      return { success: true };
-    }),
-  create: protectedProcedure
-    .input(z.object({
-      fromShift: z.enum(["early", "late", "night"]),
-      toShift: z.enum(["early", "late", "night"]),
-      date: z.string(),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      return await createHandover(input);
-    }),
-})
