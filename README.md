@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ShiftFlow – Schichtzuweisungs‑Dashboard
 
 Ein modernes, produktionsreifes Dashboard zur Verwaltung von Schichtplänen, Mitarbeitern und Maschinen in Fertigungsunternehmen.  
@@ -70,3 +71,5 @@ pnpm
 ```bash
 git clone https://github.com/rawandshechmus-dotcom/shiftflow.git
 cd shiftflow
+=======
+
