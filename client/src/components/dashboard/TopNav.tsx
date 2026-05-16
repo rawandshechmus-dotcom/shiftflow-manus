@@ -4,15 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import NotificationBell from "@/components/NotificationBell";
 import { useTheme } from "@/contexts/ThemeContext";
-import { LogOut, Moon, Sun, Zap } from "lucide-react";
+import { ClipboardList, LogOut, Moon, Sun, Zap } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
 import HandoverPopup from "../HandoverPopup";
+import HandoverForm from "@/components/HandoverForm";
 
 export default function TopNav() {
   const { user, logout } = useAuth();
   const [showHandover, setShowHandover] = useState(true);
   const { theme, toggleTheme } = useTheme();
+  const [showHandoverForm, setShowHandoverForm] = useState(false);
 
   if (!user) {
     return (
@@ -34,6 +36,7 @@ export default function TopNav() {
       className="h-16 glass-card border-b flex items-center justify-between px-6 sticky top-0 z-40"
       >
       <HandoverPopup open={showHandover} onClose={() => setShowHandover(false)} />
+      <HandoverForm open={showHandoverForm} onClose={() => setShowHandoverForm(false)} />
     
       {/* Linker Bereich: Logo */}
       <div className="flex items-center gap-3">
@@ -74,6 +77,13 @@ export default function TopNav() {
               {user.email ?? "-"}
             </span>
           </div>
+          <button
+            onClick={() => setShowHandoverForm(true)}
+            className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center transition-colors"
+            title="Schichtübergabe"
+            >
+            <ClipboardList className="h-4 w-4" />
+          </button>
           <button
             onClick={logout}
             className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors"
